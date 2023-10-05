@@ -63,15 +63,20 @@ MIT licensed, enjoy.")
 # Keycodes that match up to the shortcodes, but more verbose
 # Done for compatibility-sake
 (def long-options
-  {"--show-all" (fn [S] (do (print "Hey")))
-   "--show-ends" (fn [S] (set (S :ends) true))
-   "--number-nonblank" (fn [S] (set (S :numberb) true))
-   "--squeeze-blank" (fn [S] (set (S :squeeze) true))
-   "--show-tabs" (fn [S] (set (S :tabs) true))
-   "--show-nonprinting" (fn [S] nil)
-   "--help" (fn [S] (set (S :help) true))
-   "--version" (fn [S] (set (S :version) true))
-   "--" (fn [S] (set (S :stop) true))
+  {"--show-ends"        (fn [S] (set (S :ends) true))
+   "--number-nonblank"  (fn [S] (set (S :numberb) true))
+   "--squeeze-blank"    (fn [S] (set (S :squeeze) true))
+   "--show-tabs"        (fn [S] (set (S :tabs) true))
+   "--show-nonprinting" (fn [S] (set (S :vmode) true))
+   "--help"             (fn [S] (set (S :help) true))
+   "--version"          (fn [S] (set (S :version) true))
+   "--"                 (fn [S] (set (S :stop) true))
+   "--show-all" (fn [S]
+                  (do
+                    (set (S :ends) true)
+                    (set (S :tabs) true)
+                    (set (S :vmode) true)
+                    (print "Hey")))
   })
 
 # Is a string a short or long option?
@@ -80,31 +85,47 @@ MIT licensed, enjoy.")
        (or (string/has-prefix? "--" string)
            (string/has-prefix? "-" string))))
 
-# Printable character function
-(defn printable? [code]
-  true)
+# Print character function
+(defn print-char [char show-tab show-nonascii]
+  (prinf "%c" char))
+
+(defn print-nl [show-end show-numbered number-nonb]
+  (if (= show-end true)
+    (print "$")
+    (print "")))
 
 # This is the main logic for the cat program
 # It takes a file path for reading, and a Settings table
 (defn CAT [file settings]
   (var newline-counter 0)
-  (def stat (os/stat file))
+  (def stat (or (= :core/file (type file))
+                (os/stat file)))
   (def squeeze-newlines (get settings :squeeze))
+  (def show-newlines    (get settings :ends))
+  (def show-tabs        (get settings :tabs))
+  (def show-nonascii    (get settings :vmode))
+  (def show-numbered    (get settings :number))
+  (def numbered-nonb    (get settings :numberb))
+
   (if (= stat nil)
     (do
       (print "File '" file "' cannot be found")
       (os/exit 2))
-    (each line (file/lines (file/open file))
-      (each char line
-        (if (= char 10)
-          (if squeeze-newlines
-            (when (<= newline-counter 1)
+    (do
+      (def fi (if (= :core/file (type file))
+                file
+                (file/open file)))
+      (while (def line (file/read fi :line))
+        (each char line
+          (if (= char 10)
+            (do
               (set newline-counter (+ newline-counter 1))
-              (print ""))
-            (print ""))
-          (do
-            (set newline-counter 0)
-            (prinf "%c" char)))))))
+              (unless (and squeeze-newlines (> newline-counter 2))
+                (print-nl show-newlines show-numbered numbered-nonb)))
+            (do
+              (set newline-counter 0)
+              (print-char char show-tabs show-nonascii)))))
+      (file/close fi))))
 
 # Main entrypoint
 (defn main [& args]
@@ -135,7 +156,9 @@ MIT licensed, enjoy.")
                   (print "Try 'cat --help' for more information.")
                   (os/exit 1)))))))
       (do
-        (set (files idx) arg)
+        (if (= arg "-")
+          (set (files idx) stdin)
+          (set (files idx) arg))
         (set idx (+ idx 1)))))
 
   (when (get Settings :version)
@@ -148,7 +171,6 @@ MIT licensed, enjoy.")
 
   (each file files
     (CAT file Settings)))
-
 
 
 
